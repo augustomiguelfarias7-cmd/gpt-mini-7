@@ -18,6 +18,6 @@ Este repositório contém duas implementações do **GPT-Mini 7**, criadas por A
 ## Instalação
 
 ```bash
-git clone https://github.com/SeuUsuario/gpt-mini-7.git
+git clone https://github.com/augustomiguelfarias7-cmd/gpt-mini-7.git
 cd gpt-mini-7
 pip install -r requirements.txt
