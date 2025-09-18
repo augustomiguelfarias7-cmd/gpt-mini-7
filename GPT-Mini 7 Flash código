@@ -1,0 +1,117 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset
+from datasets import load_dataset, concatenate_datasets
+from tokenizers import Tokenizer, models, trainers, pre_tokenizers
+
+# ---------------- Tokenizer Real ----------------
+class RealTokenizer:
+    def __init__(self, vocab_size=30000):
+        self.tokenizer = Tokenizer(models.BPE())
+        self.tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+        self.trainer = trainers.BpeTrainer(
+            vocab_size=vocab_size,
+            special_tokens=["[PAD]", "[UNK]"]
+        )
+    def train(self, texts):
+        self.tokenizer.train_from_iterator(texts, self.trainer)
+    def encode(self, text):
+        return self.tokenizer.encode(text).ids
+    def decode(self, ids):
+        return self.tokenizer.decode(ids)
+
+# ---------------- Transformer Block ----------------
+class CreativeTransformerBlock(nn.Module):
+    def __init__(self, d, heads, ff):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(d, heads, batch_first=True)
+        self.norm1 = nn.LayerNorm(d)
+        self.ff = nn.Sequential(nn.Linear(d, ff), nn.GELU(), nn.Linear(ff, d))
+        self.norm2 = nn.LayerNorm(d)
+
+    def forward(self, x):
+        a, _ = self.attn(x, x, x)
+        x = self.norm1(x + a)
+        x = self.norm2(x + self.ff(x))
+        return x
+
+# ---------------- Dataset de Textos Criativos ----------------
+class CreativeTextDataset(Dataset):
+    def __init__(self, tokenizer, max_len=512):
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+        # Carregando datasets focados em criatividade
+        datasets_list = []
+        try:
+            # 100% do dataset de prompts criativos
+            datasets_list.append(load_dataset("writingPrompts", split="train"))
+            # 100% do dataset BookCorpus
+            datasets_list.append(load_dataset("bookcorpus", split="train"))
+            # Dataset de contos de fadas (fairytales)
+            datasets_list.append(load_dataset("fairytales", split="train"))
+        except:
+            # fallback se algum dataset não estiver disponível
+            datasets_list.append(load_dataset("wikitext", "wikitext-103-v1", split="train"))
+        self.dataset = concatenate_datasets(datasets_list)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        # Tenta pegar campos criativos possíveis
+        text = item.get("text", item.get("story", item.get("prompt", "")))
+        token_ids = torch.tensor(self.tokenizer.encode(text)[:self.max_len], dtype=torch.long)
+        return token_ids
+
+# ---------------- GPT-Mini 7 Flash ----------------
+class GPTMini7Flash(nn.Module):
+    def __init__(self, vocab_size=30000, embed_dim=512, depth=8, heads=8, ff_dim=2048, max_len=512):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.pos_embedding = nn.Parameter(torch.randn(1, max_len, embed_dim))
+        self.blocks = nn.ModuleList([CreativeTransformerBlock(embed_dim, heads, ff_dim) for _ in range(depth)])
+        self.ln_f = nn.LayerNorm(embed_dim)
+        self.text_head = nn.Linear(embed_dim, vocab_size)
+
+    def forward(self, x):
+        x = self.token_embedding(x) + self.pos_embedding[:, :x.size(1)]
+        for b in self.blocks:
+            x = b(x)
+        return self.text_head(self.ln_f(x))
+
+    # ---------------- Modo Thinking Criativo ----------------
+    def think_creative(self, prompt, tokenizer, max_len=100):
+        """Gera texto criativo baseado no prompt usando raciocínio criativo."""
+        self.eval()
+        token_ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long)
+        generated = token_ids
+        for _ in range(max_len):
+            logits = self.forward(generated)
+            probs = F.softmax(logits[:, -1, :], dim=-1)
+            temperature = 1.2
+            top_k = 50
+            top_probs, top_indices = probs.topk(top_k)
+            top_probs = top_probs / top_probs.sum()
+            idx = torch.multinomial(top_probs, 1)
+            next_token = top_indices[0, idx]
+            generated = torch.cat([generated, next_token.unsqueeze(0)], dim=1)
+        return tokenizer.decode(generated[0].tolist())
+
+# ---------------- Exemplo de uso ----------------
+if __name__ == "__main__":
+    tokenizer = RealTokenizer()
+    sample_texts = [
+        "Era uma vez uma galáxia cheia de aventuras...",
+        "Imagine um mundo onde os animais falam e viajam no tempo.",
+        "Escreva uma história curta sobre uma IA criativa."
+    ]
+    tokenizer.train(sample_texts)
+
+    dataset = CreativeTextDataset(tokenizer)
+    model = GPTMini7Flash(vocab_size=30000)
+
+    prompt = "No futuro, os robôs humanoides"
+    creative_output = model.think_creative(prompt, tokenizer, max_len=50)
+    print("📝 Texto Criativo:", creative_output)
