@@ -11,43 +11,43 @@ import numpy as np
 
 # ---------------- Tokenizer Real ----------------
 class RealTokenizer:
-    def __init__(self,vocab_size=30000):
-        self.tokenizer=Tokenizer(models.BPE())
-        self.tokenizer.pre_tokenizer=pre_tokenizers.Whitespace()
-        self.trainer=trainers.BpeTrainer(vocab_size=vocab_size,special_tokens=["[PAD]","[UNK]"])
-    def train(self,texts): self.tokenizer.train_from_iterator(texts,self.trainer)
-    def encode(self,text): return self.tokenizer.encode(text).ids
-    def decode(self,ids): return self.tokenizer.decode(ids)
+    def __init__(self, vocab_size=2000000):  # agora com 2 milhões de tokens
+        self.tokenizer = Tokenizer(models.BPE())
+        self.tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+        self.trainer = trainers.BpeTrainer(vocab_size=vocab_size, special_tokens=["[PAD]", "[UNK]"])
+    def train(self, texts): self.tokenizer.train_from_iterator(texts, self.trainer)
+    def encode(self, text): return self.tokenizer.encode(text).ids
+    def decode(self, ids): return self.tokenizer.decode(ids)
 
 # ---------------- Transformer Block ----------------
 class AdvancedTransformerBlock(nn.Module):
     def __init__(self,d,heads,ff):
         super().__init__()
-        self.attn=nn.MultiheadAttention(d,heads,batch_first=True)
-        self.norm1=nn.LayerNorm(d)
-        self.ff=nn.Sequential(nn.Linear(d,ff),nn.GELU(),nn.Linear(ff,d))
-        self.norm2=nn.LayerNorm(d)
-    def forward(self,x):
-        a,_=self.attn(x,x,x)
-        x=self.norm1(x+a)
-        x=self.norm2(x+self.ff(x))
+        self.attn = nn.MultiheadAttention(d, heads, batch_first=True)
+        self.norm1 = nn.LayerNorm(d)
+        self.ff = nn.Sequential(nn.Linear(d, ff), nn.GELU(), nn.Linear(ff, d))
+        self.norm2 = nn.LayerNorm(d)
+    def forward(self, x):
+        a,_ = self.attn(x,x,x)
+        x = self.norm1(x + a)
+        x = self.norm2(x + self.ff(x))
         return x
 
 # ---------------- VAE de Imagem ----------------
 class ImageVAE(nn.Module):
-    def __init__(self,dim=512):
+    def __init__(self, dim=512):
         super().__init__()
-        self.enc=nn.Sequential(
-            nn.Conv2d(3,dim,4,2,1), nn.ReLU(),
-            nn.Conv2d(dim,dim*2,4,2,1), nn.ReLU(),
-            nn.Conv2d(dim*2,dim*4,4,2,1), nn.ReLU(),
-            nn.Conv2d(dim*4,dim*8,4,2,1), nn.ReLU()
+        self.enc = nn.Sequential(
+            nn.Conv2d(3, dim, 4, 2, 1), nn.ReLU(),
+            nn.Conv2d(dim, dim*2, 4, 2, 1), nn.ReLU(),
+            nn.Conv2d(dim*2, dim*4, 4, 2, 1), nn.ReLU(),
+            nn.Conv2d(dim*4, dim*8, 4, 2, 1), nn.ReLU()
         )
-        self.dec=nn.Sequential(
-            nn.ConvTranspose2d(dim*8,dim*4,4,2,1), nn.ReLU(),
-            nn.ConvTranspose2d(dim*4,dim*2,4,2,1), nn.ReLU(),
-            nn.ConvTranspose2d(dim*2,dim,4,2,1), nn.ReLU(),
-            nn.ConvTranspose2d(dim,3,4,2,1), nn.Sigmoid()
+        self.dec = nn.Sequential(
+            nn.ConvTranspose2d(dim*8, dim*4, 4, 2, 1), nn.ReLU(),
+            nn.ConvTranspose2d(dim*4, dim*2, 4, 2, 1), nn.ReLU(),
+            nn.ConvTranspose2d(dim*2, dim, 4, 2, 1), nn.ReLU(),
+            nn.ConvTranspose2d(dim, 3, 4, 2, 1), nn.Sigmoid()
         )
     def encode(self,x): return self.enc(x)
     def decode(self,z): return self.dec(z)
@@ -55,38 +55,42 @@ class ImageVAE(nn.Module):
 
 # ---------------- Memória Vetorial ----------------
 class LongTermMemoryVector:
-    def __init__(self,dim=384,device=None):
-        self.device=device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.dim=dim; self.keys=torch.empty((0,dim),device=self.device); self.values=[]
-        self.encoder=SentenceTransformer('all-MiniLM-L6-v2')
-    def remember(self,text,value):
-        emb=torch.tensor(self.encoder.encode(text),device=self.device)
-        emb=F.normalize(emb)
-        self.keys=torch.cat([self.keys,emb.unsqueeze(0)],0)
+    def __init__(self, dim=384, device=None):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.dim = dim
+        self.keys = torch.empty((0,dim), device=self.device)
+        self.values = []
+        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+    def remember(self, text, value):
+        emb = torch.tensor(self.encoder.encode(text), device=self.device)
+        emb = F.normalize(emb)
+        self.keys = torch.cat([self.keys, emb.unsqueeze(0)], 0)
         self.values.append(value)
-    def recall(self,text,top_k=1):
+    def recall(self, text, top_k=1):
         if len(self.values)==0: return []
-        emb=torch.tensor(self.encoder.encode(text),device=self.device)
-        emb=F.normalize(emb)
-        sim=F.cosine_similarity(emb.unsqueeze(0),self.keys)
+        emb = torch.tensor(self.encoder.encode(text), device=self.device)
+        emb = F.normalize(emb)
+        sim = F.cosine_similarity(emb.unsqueeze(0), self.keys)
         return [self.values[i] for i in sim.topk(top_k).indices.tolist()]
-    def clear(self): self.keys=torch.empty((0,self.dim),device=self.device); self.values=[]
+    def clear(self):
+        self.keys = torch.empty((0,self.dim), device=self.device)
+        self.values = []
 
 # ---------------- Navegador Interativo Seguro ----------------
 class SafeInteractiveBrowser:
     def __init__(self):
-        self.playwright=sync_playwright().start()
-        self.browser=self.playwright.chromium.launch(headless=True)
-        self.page=self.browser.new_page()
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(headless=True)
+        self.page = self.browser.new_page()
     def goto(self,url,timeout=10000):
-        try: self.page.goto(url,timeout=timeout)
+        try: self.page.goto(url, timeout=timeout)
         except TimeoutError: return "Timeout ao acessar a página"
         return self.page.content()
-    def click(self,selector,timeout=5000):
-        try: self.page.click(selector,timeout=timeout)
+    def click(self, selector, timeout=5000):
+        try: self.page.click(selector, timeout=timeout)
         except TimeoutError: return f"Timeout ao clicar {selector}"
-    def type(self,selector,text,timeout=5000):
-        try: self.page.fill(selector,text,timeout=timeout)
+    def type(self, selector, text, timeout=5000):
+        try: self.page.fill(selector, text, timeout=timeout)
         except TimeoutError: return f"Timeout ao digitar {selector}"
     def get_content(self): return self.page.content()
     def close(self): self.browser.close(); self.playwright.stop()
@@ -100,46 +104,52 @@ class BluetoothAI:
 # ---------------- Dataset ----------------
 class GPTMiniDataset(Dataset):
     def __init__(self,tokenizer,max_len=512):
-        self.tokenizer=tokenizer; self.max_len=max_len
+        self.tokenizer = tokenizer
+        self.max_len = max_len
         langs=["en","pt","fr","es","de"]
-        self.text_dataset=concatenate_datasets([load_dataset("wikipedia",f"20220301.{l}",split="train") for l in langs])
+        self.text_dataset = concatenate_datasets([load_dataset("wikipedia", f"20220301.{l}", split="train") for l in langs])
         codes=["python","javascript","java","cpp","c"]
-        self.code_dataset=concatenate_datasets([load_dataset("bigcode/the-stack-dedup",split="train") for l in codes])
-        self.image_dataset=load_dataset("coco","2017",split="train")
-        self.transform_image=T.Compose([T.Resize((256,256)),T.ToTensor()])
-        try: self.reasoning_dataset=concatenate_datasets([load_dataset("gsm8k",split="train"),
-                                                         load_dataset("bigbench","logicaldeduction",split="train")])
-        except: self.reasoning_dataset=self.text_dataset
+        self.code_dataset = concatenate_datasets([load_dataset("bigcode/the-stack-dedup", split="train") for l in codes])
+        self.image_dataset = load_dataset("coco","2017",split="train")
+        self.transform_image = T.Compose([T.Resize((256,256)), T.ToTensor()])
+        try:
+            self.reasoning_dataset = concatenate_datasets([
+                load_dataset("gsm8k", split="train"),
+                load_dataset("bigbench", "logicaldeduction", split="train")
+            ])
+        except:
+            self.reasoning_dataset = self.text_dataset
         self.num_audio=10000
-    def __len__(self): return max(len(self.text_dataset),len(self.code_dataset),len(self.image_dataset),
-                                   len(self.reasoning_dataset),self.num_audio)
-    def __getitem__(self,idx):
+    def __len__(self):
+        return max(len(self.text_dataset),len(self.code_dataset),len(self.image_dataset),
+                   len(self.reasoning_dataset), self.num_audio)
+    def __getitem__(self, idx):
         t=self.text_dataset[idx%len(self.text_dataset)]["text"]
         t_t=torch.tensor(self.tokenizer.encode(t)[:self.max_len],dtype=torch.long)
         c=self.code_dataset[idx%len(self.code_dataset)]["code"]
         c_t=torch.tensor(self.tokenizer.encode(c)[:self.max_len],dtype=torch.long)
         i=self.image_dataset[idx%len(self.image_dataset)]["image"]
-        i_t=Image.fromarray(i) if isinstance(i,np.ndarray) else i
-        i_t=self.transform_image(i_t)
+        i_t = Image.fromarray(i) if isinstance(i,np.ndarray) else i
+        i_t = self.transform_image(i_t)
         r=self.reasoning_dataset[idx%len(self.reasoning_dataset)]
-        r_t=torch.tensor(self.tokenizer.encode(r.get("question",r.get("text","")))[:self.max_len],dtype=torch.long)
+        r_t=torch.tensor(self.tokenizer.encode(r.get("question", r.get("text","")))[:self.max_len],dtype=torch.long)
         a=torch.rand((256,1024)); v=torch.rand((16,3,256,256))
         return t_t,c_t,i_t,r_t,a,v
 
-# ---------------- GPT-Mini Completo com Navegador ----------------
+# ---------------- GPT-Mini Completo ----------------
 class GPTMiniInteractive(nn.Module):
-    def __init__(self,vocab_size=30000,embed_dim=512,depth=12,heads=8):
+    def __init__(self, vocab_size=2000000, embed_dim=512, depth=12, heads=8):  # 2 milhões de tokens
         super().__init__()
-        self.token_embedding=nn.Embedding(vocab_size,embed_dim)
+        self.token_embedding=nn.Embedding(vocab_size, embed_dim)
         self.pos_embedding=nn.Parameter(torch.randn(1,512,embed_dim))
-        self.blocks=nn.ModuleList([AdvancedTransformerBlock(embed_dim,heads,embed_dim*4) for _ in range(depth)])
+        self.blocks=nn.ModuleList([AdvancedTransformerBlock(embed_dim, heads, embed_dim*4) for _ in range(depth)])
         self.ln_f=nn.LayerNorm(embed_dim)
         self.text_head=nn.Linear(embed_dim,vocab_size)
         self.code_head=nn.Linear(embed_dim,vocab_size)
         self.reasoning_head=nn.Linear(embed_dim,vocab_size)
         self.image_vae=ImageVAE(dim=embed_dim)
-        self.audio_fc=nn.Linear(1024,embed_dim)
-        self.video_fc=nn.Linear(16*3*256*256,embed_dim)
+        self.audio_fc=nn.Linear(1024, embed_dim)
+        self.video_fc=nn.Linear(16*3*256*256, embed_dim)
         self.memory=LongTermMemoryVector()
         self.browser=SafeInteractiveBrowser()
         self.bluetooth_ai=BluetoothAI()
